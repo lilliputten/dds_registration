@@ -24,11 +24,6 @@ const prjPath = process.cwd();
 // const srcPath = path.resolve(prjPath, 'src');
 const staticPath = path.resolve(prjPath, 'static');
 
-
-console.log('scriptsPath', scriptsPath);
-console.log('rootPath', rootPath);
-console.log('prjPath', prjPath);
-
 // TODO: Add local config
 const configFileName = path.resolve(rootPath, 'config.js');
 const config = require(configFileName);
