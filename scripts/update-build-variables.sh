@@ -1,6 +1,6 @@
 #!/bin/sh
 # @desc Update version number & build timestamps
-# @changed 2024.03.07, 21:06
+# @changed 2024.03.10, 16:27
 
 scriptsPath=$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")
 rootPath=`dirname "$scriptsPath"`
@@ -58,9 +58,9 @@ UPDATE_FILE() {
     > $FILE || exit 1
   elif [ "$EXT" = "py" ]; then # Python
     cat $FILE.bak \
-      | sed "s/\(__version__ =\) \".*\"/\1 \"$VERSION\"/" \
-      | sed "s/\(__timestamp__ =\) \".*\"/\1 \"$TIMESTAMP\"/" \
-      | sed "s/\(__timetag__ =\) \".*\"/\1 \"$TIMETAG\"/" \
+      | sed "s/\(__version__ =\) \([\"']\).*\2/\1 \"$VERSION\"/" \
+      | sed "s/\(__timestamp__ =\) \([\"']\).*\2/\1 \"$TIMESTAMP\"/" \
+      | sed "s/\(__timetag__ =\) \([\"']\).*\2/\1 \"$TIMETAG\"/" \
     > $FILE || exit 1
   else # MD
     cat $FILE.bak \
