@@ -1,7 +1,7 @@
 #!/bin/sh
 # @desc Create/update version tag (from build folder)
 # @since 2023.01.26, 16:43
-# @changed 2024.03.07, 21:06
+# @changed 2024.03.25, 19:18
 
 scriptsPath=$(dirname "$(echo "$0" | sed -e 's,\\,/,g')")
 rootPath=`dirname "$scriptsPath"`
@@ -31,5 +31,6 @@ echo "Create/update tag $SRC_TAG_PREFIX.$VERSION..." \
   && git push origin -f --tags \
   && git pull origin \
   && git push lilliputten -f --tags \
-  && git pull lilliputten \
   && echo "OK"
+
+  # && git pull lilliputten \

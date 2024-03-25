@@ -58,9 +58,9 @@ UPDATE_FILE() {
     > $FILE || exit 1
   elif [ "$EXT" = "py" ]; then # Python
     cat $FILE.bak \
-      | sed "s/\(__version__ =\) \([\"']\).*\2/\1 \"$VERSION\"/" \
-      | sed "s/\(__timestamp__ =\) \([\"']\).*\2/\1 \"$TIMESTAMP\"/" \
-      | sed "s/\(__timetag__ =\) \([\"']\).*\2/\1 \"$TIMETAG\"/" \
+      | sed "s/\(__version__ =\) \([\"']\).*\2/\1 \2$VERSION\2/" \
+      | sed "s/\(__timestamp__ =\) \([\"']\).*\2/\1 \2$TIMESTAMP\2/" \
+      | sed "s/\(__timetag__ =\) \([\"']\).*\2/\1 \2$TIMETAG\2/" \
     > $FILE || exit 1
   else # MD
     cat $FILE.bak \
