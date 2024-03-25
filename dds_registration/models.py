@@ -85,6 +85,24 @@ class User(AbstractUser):
         self._original_username = self.username
 
 
+class Membership(models.Model):
+    user = models.ForeignKey(User, related_name='memberships', on_delete=models.CASCADE)
+    started = models.IntegerField(default=lambda: date.today().year)
+    until = models.IntegerField(default=lambda: date.today().year)
+    honorary = models.BooleanField(default=False)
+
+    @property
+    def active(self) -> bool:
+        return date.today().year <= self.until
+
+    @classmethod
+    def is_member(cls, user: User) -> bool:
+        try:
+            return cls.get(user=user).active
+        except cls.DoesNotExist:
+            return False
+
+
 class Event(models.Model):
     code = models.TextField(unique=True, default=random_code)  # Show as an input
     title = models.TextField(unique=True, null=False, blank=False)  # Show as an input
