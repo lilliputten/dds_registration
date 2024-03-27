@@ -154,7 +154,7 @@ def membership_proceed_test(request: HttpRequest, payment_id: str):
             #  "method": method,
             #  "request": request,
         }
-        LOG.debug("membership_stripe_webhook: %s", debug_data)
+        LOG.debug("membership_proceed_test: %s", debug_data)
         context = {
             "action": "membership_proceed_test",
         }
@@ -242,10 +242,3 @@ def membership_stripe_webhook(request: HttpRequest):
         # Redirect to profile page with error messages (see above)
         #  return redirect("profile")
         raise err
-
-
-#  __all__ = [
-#      membership_start,
-#      membership_proceed,
-#      membership_proceed_success,
-#  ]
