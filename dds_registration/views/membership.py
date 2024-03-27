@@ -1,5 +1,5 @@
 # @module dds_registration/views/membership.py
-# @changed 2024.03.26, 17:04
+# @changed 2024.03.27, 16:18
 
 import logging
 import traceback
@@ -83,6 +83,8 @@ def membership_start(request: HttpRequest):
         "MEMBERSHIP_TYPES": Membership.MEMBERSHIP_TYPES,
         "membership_type": Membership.DEFAULT_MEMBERSHIP_TYPE,
     }
+    debug_data = context
+    LOG.debug("membership_start: %s", debug_data)
     return render(request, "dds_registration/membership_start.html.django", context)
 
 
