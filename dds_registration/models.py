@@ -91,7 +91,11 @@ class Membership(models.Model):
     user = models.ForeignKey(User, related_name="memberships", on_delete=models.CASCADE)
     started = models.IntegerField(default=this_year)
     until = models.IntegerField(default=this_year)
+
+    #  TODO: Issue #63: Implement `honorary` as a choices list:
+    #  Normal, Board, Business, Honorary
     honorary = models.BooleanField(default=False)
+
 
     paid = models.BooleanField(default=False)
 
@@ -123,6 +127,14 @@ class Membership(models.Model):
             return False
 
 
+#  #  TODO: Invoice model
+#  class Event(models.Model):
+#      currency = models.TextField(null=True, blank=True)  # Show as an input
+#      payment_deadline_days = models.IntegerField(default=30)
+#      payment_details = models.TextField(blank=True, default="")
+#      #  TODO: invoice_no as a PK?
+
+
 class Event(models.Model):
     code = models.TextField(unique=True, default=random_code)  # Show as an input
     title = models.TextField(unique=True, null=False, blank=False)  # Show as an input
@@ -134,6 +146,9 @@ class Event(models.Model):
         default=0,
         help_text="Maximum number of participants to this event (0 = no limit)",
     )
+
+    # TODO: Issue #63: move currency to RegistrationOption
+
     currency = models.TextField(null=True, blank=True)  # Show as an input
 
     payment_deadline_days = models.IntegerField(default=30)
@@ -183,7 +198,7 @@ class Event(models.Model):
 
     def new_registration_url(self):
         return reverse("event_registration_new", args=(self.code,))
-
+
     def new_registration_full_url(self):
         site = Site.objects.get_current()
         scheme = "https"
@@ -213,6 +228,7 @@ class RegistrationOption(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     item = models.TextField(null=False, blank=False)  # Show as an input
     price = models.FloatField(default=0, null=False)
+    #  TODO: Issue #63: The column add_on can be removed?
     add_on = models.BooleanField(default=False)
 
     def __str__(self):
@@ -230,6 +246,8 @@ class Registration(models.Model):
     """
 
     invoice_no = models.AutoField(primary_key=True)
+    #  # TODO: Issue #63: Implement as ForeignKey to Invoice
+    #  invoice = models.ForeignKey(Invoice, related_name="registrations", on_delete=models.CASCADE)
 
     event = models.ForeignKey(Event, related_name="registrations", on_delete=models.CASCADE)
     user = models.ForeignKey(User, related_name="registrations", on_delete=models.CASCADE)
@@ -237,6 +255,10 @@ class Registration(models.Model):
     # If the registration has cancelled, the `active` status should be set to false
     active = models.BooleanField(default=True)
 
+    #  TODO: Issue #63: Use `status` field istead of `active` with choices:
+    #  Application submitted, Selected, Wait listed, Declined, Registered (payment pending), Registered, Withdrawn
+
+    #  TODO: Issue #63: Implement as a ForeignKey (?)
     options = models.ManyToManyField(RegistrationOption)
 
     # Payment method:
@@ -249,6 +271,7 @@ class Registration(models.Model):
 
     extra_invoice_text = models.TextField(blank=True, default="")
 
+    #  TODO: Issue #63: Paid and paid_date should be removed
     paid = models.BooleanField(default=False)
     paid_date = models.DateTimeField(blank=True, null=True)
 
