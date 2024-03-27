@@ -52,7 +52,7 @@ if not SECRET_KEY or not REGISTRATION_SALT or not SENDGRID_API_KEY:
     raise Exception(error_text)
 
 # Preprocess scss source files wwith django filters
-USE_DJANGO_PREPROCESSORS = DEV
+USE_DJANGO_PREPROCESSORS = LOCAL
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Static files (CSS, JavaScript, Images)
