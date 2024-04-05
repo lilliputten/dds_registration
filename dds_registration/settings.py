@@ -124,6 +124,8 @@ COMPRESS_PRECOMPILERS = (
 DEFAULT_HOST = "events.d-d-s.ch"
 ALLOWED_HOSTS = [
     DEFAULT_HOST,
+    # Demo site
+    "dds-registration.lilliputten.ru",
 ]
 CSRF_TRUSTED_ORIGINS = [
     "https://" + DEFAULT_HOST,
