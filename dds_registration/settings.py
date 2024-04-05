@@ -122,6 +122,7 @@ COMPRESS_PRECOMPILERS = (
 
 # These settings already exist in `default_settings.py` Should we remove those?
 DEFAULT_HOST = "events.d-d-s.ch"
+DEFAULT_HOST = "dds-registration.lilliputten.ru"  # DEMO
 ALLOWED_HOSTS = [
     DEFAULT_HOST,
     # Demo site
