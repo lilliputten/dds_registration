@@ -29,7 +29,8 @@ sys.path.insert(1, rootPath)
 
 import django
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dds_registration.settings')
+#  os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'dds_registration.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'default_settings')
 from django.core.wsgi import get_wsgi_application
 
 try:
