@@ -5,10 +5,58 @@ from django.forms.models import ModelForm
 
 from django_registration.forms import RegistrationForm as BaseRegistrationForm
 
-from .models import DiscountCode, Event, RegistrationOption, User
+from .models import (
+    Event,
+    RegistrationOption,
+    User,
+    Invoice,
+)
 
 # A text field to use in those TextField's which don't require large texts, but can use one-line text inputs
 textInputWidget = forms.TextInput(attrs={"class": "vLargeTextField"})
+textAreaWidget = forms.Textarea(attrs={"class": "vLargeTextField", "rows": 5})
+
+
+class BillingInvoiceForm(ModelForm):
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "name",
+            "address",
+            "payment_method",
+            "extra_invoice_text",
+        ]
+        labels = {
+            "extra_invoice_text": "Extra invoice text details, like reference or purchase order numbers",
+        }
+        help_texts = {
+            "name": "In case it needs to be different on the invoice or receipt.",
+            "address": "In case it needs to be different on the invoice or receipt.",
+        }
+        widgets = {
+            # Issue #71: Make payment method control inline, add option
+            # icons. To clarify: Add 'highlighting'? Change names to
+            # 'Credit Card' or 'Invoice'? Probably it'll be neccesary to
+            # redefine widget class.
+            "payment_method": forms.RadioSelect(attrs={"class": "form-control form-check-inline"}),
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "address": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+            "extra_invoice_text": forms.Textarea(attrs={"class": "form-control", "rows": 5}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["name"].required = True
+        self.fields["address"].required = True
+
+
+class BillingEventForm(BillingInvoiceForm):
+    pass
+
+
+class BillingMembershipForm(BillingInvoiceForm):
+    pass
 
 
 class DdsRegistrationForm(BaseRegistrationForm):
@@ -42,7 +90,6 @@ class DdsRegistrationForm(BaseRegistrationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["email"].required = True
         self.fields["first_name"].required = True
         self.fields["last_name"].required = True
 
@@ -63,15 +110,31 @@ class EventAdminForm(ModelForm):
             "code": textInputWidget,
             "title": textInputWidget,
             "currency": textInputWidget,
+            "description": textAreaWidget,
+            "payment_details": textAreaWidget,
         }
         fields = "__all__"
 
 
-class DiscountCodeAdminForm(ModelForm):
+class InvoiceAdminForm(ModelForm):
     class Meta:
-        model = DiscountCode
+        model = Invoice
         widgets = {
-            "code": textInputWidget,
+            "name": textInputWidget,
+            "address": textAreaWidget,
+            "data": textAreaWidget,
+            "extra_invoice_text": textAreaWidget,
+        }
+        fields = "__all__"
+
+
+class UserAdminForm(ModelForm):
+    class Meta:
+        model = User
+        widgets = {
+            "first_name": textInputWidget,
+            "last_name": textInputWidget,
+            "address": textAreaWidget,
         }
         fields = "__all__"
 
@@ -109,16 +172,17 @@ class UpdateUserForm(forms.ModelForm):
             #  'is_active',  # ???
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["first_name"].required = True
+        self.fields["last_name"].required = True
 
-#  # UNUSED: Address has integrated into the base user model
-#  class UpdateProfileForm(forms.ModelForm):
-#      address = forms.CharField(
-#          required=False,
-#          widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 5}),
-#      )
-#
+
+# Issue #63: Temporarily unused
+#  class DiscountCodeAdminForm(ModelForm):
 #      class Meta:
-#          model = Profile
-#          fields = [
-#              'address',
-#          ]
+#          model = DiscountCode
+#          widgets = {
+#              "code": textInputWidget,
+#          }
+#          fields = "__all__"

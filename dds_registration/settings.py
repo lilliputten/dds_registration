@@ -4,8 +4,8 @@ import environ
 import os
 import posixpath
 import re
-import sys
-
+import string
+import random
 
 # Working folder
 
@@ -23,36 +23,57 @@ SITE_ID = 1
 env = environ.Env(
     # @see local `.dev` file and example in `.dev.SAMPLE`
     # @see https://django-environ.readthedocs.io
-    DEV=(bool, False),  # Dev server mode
     DEBUG=(bool, False),  # Django debug mode
-    LOCAL=(bool, False),  # Local dev server mode
     SECRET_KEY=(str, ""),
     SENDGRID_API_KEY=(str, ""),
     REGISTRATION_SALT=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "events@d-d-s.ch"),
+    STRIPE_PUBLISHABLE_KEY=(str, ""),
+    STRIPE_SECRET_KEY=(str, ""),
+    SLACK_WEBHOOK=(str, ""),
 )
 
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 environ.Env.read_env(os.path.join(BASE_DIR, ".env.local"))
 
-DEV = env("DEV")
-DEBUG = env("DEBUG")
-LOCAL = env("LOCAL")
 
+def random_string(length: int = 32) -> str:
+    possibles = string.ascii_letters + string.digits
+    return "".join(random.sample(possibles, length))
+
+
+# Dev-time flags
+DEBUG = env("DEBUG")
+DEV = DEBUG
+LOCAL = DEV
+
+# Preprocess scss source files with django filters
+USE_DJANGO_PREPROCESSORS = False  # LOCAL
+
+# Secrets
 SECRET_KEY = env("SECRET_KEY")
 REGISTRATION_SALT = env("REGISTRATION_SALT")
 SENDGRID_API_KEY = env("SENDGRID_API_KEY")
+STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY")
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
+SLACK_WEBHOOK = env("SLACK_WEBHOOK")
 
-if not SECRET_KEY or not REGISTRATION_SALT or not SENDGRID_API_KEY:
-    error_text = "Error: Environment configuration variables are required (check for your local `.env*` files, refer to `.env.SAMPLE`)."
-    raise Exception(error_text)
+SECRETS = [
+    (SECRET_KEY, "SECRET_KEY"),
+    (REGISTRATION_SALT, "REGISTRATION_SALT"),
+    (SENDGRID_API_KEY, "SENDGRID_API_KEY"),
+    (STRIPE_PUBLISHABLE_KEY, "STRIPE_PUBLISHABLE_KEY"),
+    (STRIPE_SECRET_KEY, "STRIPE_SECRET_KEY"),
+]
 
-if not SECRET_KEY or not REGISTRATION_SALT or not SENDGRID_API_KEY:
-    error_text = "Error: Environment configuration variables are required (check for your local `.env` file, refer to `.env.SAMPLE`)."
-    raise Exception(error_text)
+for key, label in SECRETS:
+    if not key:
+        if DEV and key in (SECRET_KEY, REGISTRATION_SALT):
+            key = random_string()
+        else:
+            error_text = f"Error: Environment configuration variable {label} missing"
+            raise Exception(error_text)
 
-# Preprocess scss source files wwith django filters
-USE_DJANGO_PREPROCESSORS = LOCAL
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Static files (CSS, JavaScript, Images)
@@ -100,10 +121,15 @@ COMPRESS_PRECOMPILERS = (
 )
 
 # These settings already exist in `default_settings.py` Should we remove those?
-ALLOWED_HOSTS = ["events.d-d-s.ch"]
-CSRF_TRUSTED_ORIGINS = ["https://events.d-d-s.ch"]
+DEFAULT_HOST = "events.d-d-s.ch"
+ALLOWED_HOSTS = [
+    DEFAULT_HOST,
+]
+CSRF_TRUSTED_ORIGINS = [
+    "https://events.d-d-s.ch",
+]
 
-if LOCAL:
+if LOCAL or DEBUG:
     # Allow work with local server in local dev mode
     ALLOWED_HOSTS.append("localhost")
 
@@ -135,6 +161,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    APP_NAME + ".middleware.BeautifulMiddleware.BeautifulMiddleware",  # Html content prettifier
 ]
 
 # Add livereload app...
@@ -148,7 +175,6 @@ INSTALLED_APPS.insert(0, "livereload")
 #  {% load livereload_tags %}
 #  {% endif %}
 # ```
-# -- but probably it doesn't work?
 
 if DEV:
     MIDDLEWARE.append("livereload.middleware.LiveReloadScript")
@@ -310,10 +336,20 @@ TIMEOUT = 30 if DEBUG else 300  # Short value for debug time
 # TODO: Use `Site.objects.get_current().name` (via `from django.contrib.sites.models import Site`) as site title.
 SITE_NAME = "Départ de Sentier Events and Membership Portal"
 SITE_TITLE = SITE_NAME
-SITE_DESCRIPTION = SITE_NAME
+# TODO: Issue #40: Add proper site description and keywords...
+SITE_DESCRIPTION = "The membership and events registration portal for the DdS. Départ de Sentier (abbreviated DdS) is a non-profit association which supports open sustainability assessment and public engagement. DdS organizes conferences and code, supports teaching, and rewards open software development."
 SITE_KEYWORDS = """
-Registration
-Events
+Départ de Sentier
+DdS
+d-d-s.ch
+events and membership portal
+non-profit association
+open sustainability conferences
+teaching
+open software development
+registration
+events
+membership
 """
 SITE_KEYWORDS = re.sub(r"\s*[\n\r]+\s*", ", ", SITE_KEYWORDS.strip())
 # TODO: Issue #30: Add correct tags, resources for SSO, search engines and social networks (open graph etc)
@@ -323,7 +359,10 @@ PASS_VARIABLES = {
     "DEBUG": DEBUG,  # Pass django debug flag to the code (from environment)
     "DEV": DEV,  # Dev server mode (from the environment)
     "LOCAL": LOCAL,  # Local dev server mode (from the environment)
+    "DEFAULT_HOST": DEFAULT_HOST,
     "USE_DJANGO_PREPROCESSORS": USE_DJANGO_PREPROCESSORS,
+    "STRIPE_PUBLISHABLE_KEY": STRIPE_PUBLISHABLE_KEY,
+    "DEFAULT_FROM_EMAIL": DEFAULT_FROM_EMAIL,
     # NOTE: Site url and name could be taken from site data via `get_current_site`
     "SITE_NAME": SITE_NAME,
     "SITE_TITLE": SITE_TITLE,

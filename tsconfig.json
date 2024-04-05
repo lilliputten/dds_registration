@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "module": "amd",
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "src/*": ["src/assets/*"]
+    },
+    "outFile": "scripts.js"
+  },
+  "files": ["src/assets/scripts.ts"],
+  "typeRoots": ["src/assets/@types/**/*"],
+  "include": ["src/assets"]
+}

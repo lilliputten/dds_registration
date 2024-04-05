@@ -1,5 +1,5 @@
 # @module dds_registration/views/helpers.py
-# @changed 2024.03.13, 16:09
+# @changed 2024.04.04, 20:27
 
 import logging
 import traceback
@@ -15,9 +15,15 @@ from django.http import HttpRequest
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 
-from ..core.helpers.errors import errorToString
+from ...core.helpers.errors import errorToString
 
-from ..models import Event, Registration, RegistrationOption, User
+from ...models import (
+    REGISTRATION_ACTIVE_QUERY,
+    Event,
+    Registration,
+    RegistrationOption,
+    User,
+)
 
 # For django_registration related stuff, see:
 # .venv/Lib/site-packages/django_registration/backends/activation/views.py
@@ -76,7 +82,7 @@ def send_re_actvation_email(request: HttpRequest, user: AbstractBaseUser | Anony
             context=context,
             request=request,
         )
-        user.email_user(subject, message, settings.DEFAULT_FROM_EMAIL)
+        user.email_user(subject, message)
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         sTraceback = str(traceback.format_exc())
@@ -95,10 +101,14 @@ def get_events_list(request: HttpRequest, events: list[Event]):
     for event in events:
         event_info = {"event": event, "registration": None}
         if request.user.is_authenticated:
-            # Look for a possible registration by the user
             try:
-                registration = event.registrations.get(user=request.user, active=True)
+                # Look for a possible registration by the user
+                registration = event.registrations.get(REGISTRATION_ACTIVE_QUERY, user=request.user)
                 event_info["registration"] = registration
+                # Look for a possible invoice by the user
+                if registration:
+                    invoice = registration.invoice
+                    event_info["invoice"] = invoice
                 result.append(event_info)
             except Registration.DoesNotExist:
                 pass
@@ -130,8 +140,6 @@ def get_event_registration_form_context(request: HttpRequest, event_code: str, c
     reg = None
     reg_options = None
     checked_option_ids = []  # Will be got from post request, see below
-    payment_method = Registration.DEFAULT_PAYMENT_METHOD
-    extra_invoice_text = ""
     # Is data ready to save
     data_ready = False
 
@@ -158,7 +166,8 @@ def get_event_registration_form_context(request: HttpRequest, event_code: str, c
     # Try to find active registrations for this event (prevent constrain exception)...
     try:
         # TODO: Go to the next stage with a message text?
-        regs = Registration.objects.filter(event=event, user=user, active=True)
+        regs = Registration.objects.filter(REGISTRATION_ACTIVE_QUERY, event=event, user=user)
+        # regs = Registration.objects.filter(event=event, user=user, active=True)
         regs_count = len(regs)
         has_reg = bool(regs_count)
         if not create_new:
@@ -170,7 +179,7 @@ def get_event_registration_form_context(request: HttpRequest, event_code: str, c
                 LOG.info("%s (redirecting): %s", msg_text, debug_data)
                 messages.info(request, msg_text)
                 # TODO: Already exists redirect?
-                context["redirect"] = "SUCCESS"
+                context["redirect"] = "profile"
                 return context
             else:
                 reg = regs[0]
@@ -219,42 +228,23 @@ def get_event_registration_form_context(request: HttpRequest, event_code: str, c
 
     # Get data from registration object, if it's found...
     if reg:
-        payment_method = reg.payment_method
-        extra_invoice_text = reg.extra_invoice_text
-        options = reg.options
-        checked_option_ids = list(map(lambda item: item.id, options.all()))
-        debug_data = {
-            "reg": reg,
-            "payment_method": payment_method,
-            "extra_invoice_text": extra_invoice_text,
-            "checked_option_ids": checked_option_ids,
-        }
-        # LOG.debug("Object data: %s", debug_data)
+        option = reg.option
+        options = [option]
+        checked_option_ids = list(map(lambda item: item.id, options))
 
     # If request has posted form data...
     has_post_data = request.method == "POST"
     if has_post_data:
-        # Get payment method...
-        payment_method = request.POST.get("payment_method", Registration.DEFAULT_PAYMENT_METHOD)
-        extra_invoice_text = request.POST.get("extra_invoice_text", "")
         # Retrieve new options list from the post data...
         new_checked_option_ids = request.POST.getlist("checked_option_ids")
         checked_option_ids = list(map(int, new_checked_option_ids))
-        debug_data = {
-            "request.POST": request.POST,
-            "payment_method": payment_method,
-            "extra_invoice_text": extra_invoice_text,
-            "checked_option_ids": checked_option_ids,
-        }
-        # LOG.debug("Post data: %s", debug_data)
         # Allow form save
         data_ready = True
 
     # Final step: prepare data, save created registration, render form...
     try:
         # NOTE: It's required to have at least one checked basic option! Going to check it...
-        reg_options_addons = reg_options.filter(add_on=True)  # Unused
-        reg_options_basic = reg_options.filter(add_on=False)
+        reg_options_basic = reg_options.all()
         reg_options_basic_ids = list(map(lambda item: item.id, reg_options_basic))
         reg_options_basic_checked_ids = list(set(checked_option_ids) & set(reg_options_basic_ids))
         has_reg_options_basic_checked = bool(len(reg_options_basic_checked_ids))
@@ -274,45 +264,29 @@ def get_event_registration_form_context(request: HttpRequest, event_code: str, c
         elif many_reg_options_basic_checked:
             # Return to form editing and show message
             error_text = "Only one basic option should be selected"
-            # Remove the extra elements from the ids list (use only first element)
-            checked_option_ids = list(map(lambda item: item.id, reg_options_addons))
-            checked_option_ids.append(reg_options_basic_ids[0])
+            checked_option_ids = [reg_options_basic_ids[0]]
             if has_post_data:
                 # If had user data posted then show an error mnessgae...
                 messages.warning(request, error_text)
             data_ready = False
         context["reg_options_basic"] = reg_options_basic
-        context["reg_options_addons"] = reg_options_addons
         context["checked_option_ids"] = checked_option_ids
-        context["PAYMENT_METHODS"] = Registration.PAYMENT_METHODS
-        context["payment_method"] = payment_method
-        context["extra_invoice_text"] = extra_invoice_text
         # If data_ready: save data and go to the next stage
         if data_ready:
             # TODO: If data_ready: save data and go to the next stage
             options = RegistrationOption.objects.filter(id__in=checked_option_ids)
+            option = options[0] if len(options) else None
             if not reg and create_new:
                 # Create new object for a 'create new' strategy...
                 reg = Registration()
                 reg.event = event
                 reg.user = user
             # Set/update parameters...
-            reg.payment_method = payment_method
-            reg.extra_invoice_text = extra_invoice_text
-            if create_new:
-                reg.save()  # Save object before set many-to-many relations
-            reg.options.set(options)
+            reg.option = option
+            # The status is set to either SUBMITTED or PAYMENT_PENDING, depending on the event type
+            reg.status = "SUBMITTED"  # Later will be changed to "PAYMENT_PENDING" ()at the moment of invoice creation)
+            # TODO: Issue #63: Create and set an invoice? + Add a template selection to the form?
             reg.save()  # Save object before set many-to-many relations
-            debug_data = {
-                "options": options,
-                "checked_option_ids": checked_option_ids,
-                "payment_method": payment_method,
-                "extra_invoice_text": extra_invoice_text,
-            }
-            # LOG.debug("Creating a registration: %s", debug_data)
-            # TODO: Send an e-mail message (if registration has been created)...
-            if create_new:
-                send_event_registration_success_message(request, event_code)
             # Redirect to the success message page
             context["redirect"] = "SUCCESS"
             context["registration_created"] = True
@@ -385,7 +359,8 @@ def show_registration_form_success(request: HttpRequest, event_code: str, templa
 
 
 def calculate_total_registration_price(registration: Registration) -> int:
-    options = registration.options.all()
+    option = registration.option
+    options = [option]
     options_price = reduce(lambda sum, opt: sum + opt.price if opt.price else sum, options, 0)
     total_price = options_price
     return total_price
@@ -402,14 +377,17 @@ def get_event_registration_context(request: HttpRequest, event_code: str):
     }
     event = None
     registration = None
+    invoice = None
     # Try to get event object by code...
     try:
         event = Event.objects.get(code=event_code)
-        registration = event.registrations.get(user=user, event=event, active=True)
+        registration = event.registrations.get(REGISTRATION_ACTIVE_QUERY, user=user, event=event)
         if not registration:
             raise Exception("Not found active registrations")
         context["event"] = event
         context["registration"] = registration
+        context["total_price"] = calculate_total_registration_price(registration)  # Is it used?
+        context["invoice"] = registration.invoice
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         error_text = 'Not found event code "{}": {}'.format(event_code, sError)
@@ -422,16 +400,16 @@ def get_event_registration_context(request: HttpRequest, event_code: str):
         }
         LOG.error("%s (redirecting to profile): %s", error_text, debug_data)
         raise Exception(error_text)
-
-    context["event"] = event
-    context["registration"] = registration
-    context["total_price"] = calculate_total_registration_price(registration)
     return context
 
 
 def send_event_registration_success_message(request: HttpRequest, event_code: str):
     """
     Send successful event registration created message to the user
+
+    TODO: Send different messages depending on the `payment_method`?
+
+    TODO: Issue #74: Send invoice pdf (see `create_invoice_pdf`) as atachment for `INVOICE` payment method
     """
 
     email_body_template = "dds_registration/event_registration_new_success_message_body.txt"
@@ -441,8 +419,9 @@ def send_event_registration_success_message(request: HttpRequest, event_code: st
 
     context = get_event_registration_context(request, event_code)
 
+    invoice = context.get("invoice")
+
     try:
-        # LOG.debug("start: %s", context)
         subject = render_to_string(
             template_name=email_subject_template,
             context=context,
@@ -454,12 +433,7 @@ def send_event_registration_success_message(request: HttpRequest, event_code: st
             context=context,
             request=request,
         )
-        debug_data = {
-            "subject": subject,
-            "body": body,
-        }
-        # LOG.debug("mail_user: %s", context)
-        user.email_user(subject, body, settings.DEFAULT_FROM_EMAIL)
+        user.email_user(subject, body)
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         sTraceback = str(traceback.format_exc())
@@ -471,20 +445,9 @@ def send_event_registration_success_message(request: HttpRequest, event_code: st
         raise err
 
 
-def get_full_user_name(user: User) -> str:
-    if not user:
-        return ""
-    full_name = user.get_full_name()
-    if not full_name:
-        full_name = user.email
-    return full_name
-
-
 __all__ = [
     get_events_list,
-    get_event_registration_form_context,
     event_registration_form,
     show_registration_form_success,
     get_event_registration_context,
-    get_full_user_name,
 ]

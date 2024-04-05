@@ -6,7 +6,6 @@ from django.contrib import messages
 from django.http import HttpRequest
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
-from django.conf import settings
 from django.contrib.sites.shortcuts import get_current_site
 
 import traceback
@@ -15,6 +14,7 @@ import logging
 from ..core.helpers.errors import errorToString
 
 from ..models import (
+    REGISTRATION_ACTIVE_QUERY,
     Event,
     Registration,
 )
@@ -51,7 +51,7 @@ def send_event_registration_cancelled_message(request: HttpRequest, context: dic
             "body": body,
         }
         # LOG.debug("mail_user: %s", context)
-        user.email_user(subject, body, settings.DEFAULT_FROM_EMAIL)
+        user.email_user(subject, body)
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         sTraceback = str(traceback.format_exc())
@@ -105,7 +105,7 @@ def get_event_registration_cancel_context(request: HttpRequest, event_code: str)
     # Try to find active registrations for this event (prevent constrain exception)...
     try:
         # TODO: Go to the next stage with a message text?
-        regs = Registration.objects.filter(event=event, user=user, active=True)
+        regs = Registration.objects.filter(REGISTRATION_ACTIVE_QUERY, event=event, user=user)
         regs_count = len(regs)
         has_reg = bool(regs_count)
         if not has_reg:
@@ -116,7 +116,7 @@ def get_event_registration_cancel_context(request: HttpRequest, event_code: str)
             LOG.info("%s (redirecting): %s", msg_text, debug_data)
             messages.info(request, msg_text)
             # TODO: Already exists redirect?
-            context["redirect"] = "SUCCESS"
+            context["redirect"] = "profile"
             return context
         else:
             registration = regs[0]
@@ -197,7 +197,7 @@ def event_registration_cancel_process_action(
         return redirect("profile")
     # Else (on success) make a registration record inactive and go to profile page with a message...
     registration: Registration = context["registration"]
-    registration.active = False
+    registration.status = "WITHDRAWN"
     registration.save()
     # Send an email message?
     send_event_registration_cancelled_message(request, context)

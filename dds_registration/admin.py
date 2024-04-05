@@ -3,20 +3,27 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.admin import SimpleListFilter
 from django.db.models import Q
 
-from .forms import DiscountCodeAdminForm, EventAdminForm, RegistrationOptionAdminForm
+from .forms import (
+    EventAdminForm,
+    RegistrationOptionAdminForm,
+    InvoiceAdminForm,
+    UserAdminForm,
+)
 from .models import (
-    DiscountCode,
+    # Issue #63: Temporarily unused
+    #  DiscountCode,
+    #  GroupDiscount,
     Event,
-    GroupDiscount,
     Message,
     Registration,
     RegistrationOption,
     User,
     Membership,
+    Invoice,
 )
 
 # Default registrations (without modifications)
-admin.site.register(GroupDiscount)
+#  admin.site.register(GroupDiscount)
 admin.site.register(Message)
 
 
@@ -42,9 +49,7 @@ class IsRegularUserFilter(SimpleListFilter):
 
 
 class UserAdmin(BaseUserAdmin):
-
-    #  # UNUSED: Address has integrated into the base user model
-    #  inlines = (ProfileInline,)
+    form = UserAdminForm
 
     fieldsets = (
         (None, {"fields": ("username", "password")}),
@@ -60,17 +65,12 @@ class UserAdmin(BaseUserAdmin):
         "is_regular_user",
     ]
     list_filter = [IsRegularUserFilter]
-    #  exclude = ['email']
-    #  readonly_fields = ['email']
 
     def is_regular_user(self, user):
         return not user.is_staff and not user.is_superuser
 
     is_regular_user.short_description = "Regular user"
     is_regular_user.boolean = True
-
-    def get_address(self):
-        return self.profile.address
 
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
@@ -103,15 +103,15 @@ admin.site.register(User, UserAdmin)
 
 
 class MembershipAdmin(admin.ModelAdmin):
-    list_display = (
+    list_display = [
         "user",
         "started",
         "until",
         "honorary",
-        "paid",
+        #  "paid",
         "active",
         "membership_type",
-    )
+    ]
 
 
 admin.site.register(Membership, MembershipAdmin)
@@ -119,7 +119,11 @@ admin.site.register(Membership, MembershipAdmin)
 
 class RegistrationAdmin(admin.ModelAdmin):
     # NOTE: Trying to show non-editable fields (this approach doesn't work)
-    readonly_fields = ["invoice_no", "created_at", "updated_at"]
+    readonly_fields = [
+        #  "invoice_no",
+        "created_at",
+        "updated_at",
+    ]
     search_fields = [
         # TODO?
         #  'user',  # Unsupported lookup 'icontains' for ForeignKey or join on the field not permitted.
@@ -127,39 +131,22 @@ class RegistrationAdmin(admin.ModelAdmin):
         #  'options',  # Unsupported lookup 'icontains' for ForeignKey or join on the field not permitted.
     ]
 
-    list_display = (
+    list_display = [
         "user_column",
-        "invoice_name",
+        "invoice",
         "event",
-        "payment_method",
-        "options_column",
-        "active",
-        "paid",
+        "option",
+        "status",
         "created_at",
-    )
+    ]
 
     def user_column(self, reg):
         user = reg.user
-        full_name = user.get_full_name()
-        name = full_name if full_name else user.email
-        if user.email:
-            name += " <{}>".format(user.email)
+        name = user.full_name_with_email
         return name
 
     user_column.short_description = "User"
     user_column.admin_order_field = "user"
-
-    def invoice_name(self, reg):
-        return "Invoice #{}".format(reg.invoice_no)
-
-    invoice_name.short_description = "Invoice"
-    invoice_name.admin_order_field = "invoice_no"
-
-    def options_column(self, reg):
-        return ", ".join([p.item for p in reg.options.all()])
-
-    options_column.short_description = "Options"
-    options_column.admin_order_field = "options"
 
 
 admin.site.register(Registration, RegistrationAdmin)
@@ -171,12 +158,12 @@ class RegistrationOptionAdmin(admin.ModelAdmin):
         "item",
         #  'event',  # NOTE: Unsupported lookup 'icontains' for ForeignKey or join on the field not permitted.
     ]
-    list_display = (
+    list_display = [
         "item",
-        "price",
-        "add_on",
         "event",
-    )
+        "price",
+        "currency",
+    ]
 
 
 admin.site.register(RegistrationOption, RegistrationOptionAdmin)
@@ -192,29 +179,77 @@ class EventAdmin(admin.ModelAdmin):
         "title",
     ]
     form = EventAdminForm
-    list_display = (
+    list_display = [
         "title",
         "code",
         "max_participants",
-        "currency",
+        #  "currency",
         "registration_open",
         "registration_close",
         "public",
         "new_registration_full_url",
-    )
+    ]
 
 
 admin.site.register(Event, EventAdmin)
 
 
-class DiscountCodeAdmin(admin.ModelAdmin):
-    form = DiscountCodeAdminForm
-    list_display = (
-        "event",
-        "code",
-        "percentage",
-        "absolute",
-    )
+@admin.action(description="Mark selected invoices as paid")
+def mark_invoice_paid(modeladmin, request, queryset):
+    for inv in queryset:
+        inv.mark_paid()
 
 
-admin.site.register(DiscountCode, DiscountCodeAdmin)
+class InvoiceAdmin(admin.ModelAdmin):
+    form = InvoiceAdminForm
+    # TODO: Show related objects: registration, membership etc?
+    readonly_fields = [
+        "invoice_no",
+        "created",
+        "registrations_column",
+        "memberships_column",
+    ]
+    list_display = [
+        "invoice_no",
+        "status",
+        "currency_id",
+        "registrations_column",
+        "memberships_column",
+        "created",
+    ]
+    actions = [mark_invoice_paid]
+
+    def currency_id(self, invoice):
+        return invoice.currency
+
+    currency_id.short_description = "Currency"
+    currency_id.admin_order_field = "currency"
+
+    def registrations_column(self, invoice):
+        registrations = invoice.registrations.all()
+        return "; ".join(filter(None, map(str, registrations)))
+
+    registrations_column.short_description = "Registrations"
+
+    def memberships_column(self, invoice):
+        memberships = invoice.memberships.all()
+        return "; ".join(filter(None, map(str, memberships)))
+
+    memberships_column.short_description = "Memberships"
+
+
+admin.site.register(Invoice, InvoiceAdmin)
+
+
+# Issue #63: Temporarily unused
+#  class DiscountCodeAdmin(admin.ModelAdmin):
+#      form = DiscountCodeAdminForm
+#      list_display = [
+#          "event",
+#          "code",
+#          "percentage",
+#          "absolute",
+#      ]
+#
+#
+#  admin.site.register(DiscountCode, DiscountCodeAdmin)

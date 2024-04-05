@@ -1,141 +1,61 @@
 # @module dds_registration/views/membership.py
-# @changed 2024.03.27, 16:18
+# @changed 2024.04.02, 15:05
 
 import logging
 import traceback
-import json
 
-from django.contrib.sites.shortcuts import get_current_site
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
+from django.http import HttpRequest
 from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
+
+from .helpers.check_for_available_membership import check_for_available_membership
 
 from ..core.helpers.errors import errorToString
-
-from ..core.constants.stripe_payments import (
-    academic_membership_stripe_payment_link,
-    regular_membership_stripe_payment_link,
-)
-
-#  from ..core.helpers.create_invoice_pdf import create_invoice_pdf
-#  from ..core.helpers.errors import errorToString
-
-#  from .get_invoice_context import get_invoice_context
+from ..core.helpers.create_invoice_pdf import create_invoice_pdf
 
 from ..models import Membership
+
+from .get_invoice_context import get_membership_invoice_context
 
 
 LOG = logging.getLogger(__name__)
 
 
-# TODO: Revoke membership?
-
-
-class check_for_available_membership:
-    """
-    Check if it's possible to apply for a membership
-    """
-
-    response: None | HttpResponsePermanentRedirect | HttpResponseRedirect = None
-    success: bool = False
-
-    def __init__(self, request: HttpRequest):
-        self.success = True  # Assume success by default
-        user = request.user
-        # Check for the existing membership...
-        if user.is_authenticated:
-            memberships = Membership.objects.filter(user=user)
-            # Are there memberships for this user?
-            if memberships and len(memberships):
-                messages.success(request, "You're already a member (or waiting for your membership activation)")
-                # TODO: Display the membership data on the profile page?
-                self.response = redirect("profile")
-                self.success = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        pass
-
-
-def check_if_it_possible_to_become_a_member(request: HttpRequest):
-    user = request.user
-    # Check for the existing membership...
-    if user.is_authenticated:
-        memberships = Membership.objects.filter(user=user)
-        # Has member user(s)?
-        if memberships and len(memberships):
-            messages.success(request, "You're already a member (or waiting for your membership activation)")
-            # TODO: Display the membership data on the profile page?
-            return redirect("profile")
-    return None
+# TODO: Revoke membership feature?
 
 
 def membership_start(request: HttpRequest):
-    with check_for_available_membership(request) as checked:
-        if checked.response:
-            return checked.response
-    # Display a membership options form...
-    context = {
-        "MEMBERSHIP_TYPES": Membership.MEMBERSHIP_TYPES,
-        "membership_type": Membership.DEFAULT_MEMBERSHIP_TYPE,
-    }
-    debug_data = context
-    LOG.debug("membership_start: %s", debug_data)
-    return render(request, "dds_registration/membership_start.html.django", context)
-
-
-@login_required
-def membership_proceed(request: HttpRequest):
     try:
         user = request.user
-        if not user.is_authenticated:
-            messages.error(request, "Authorization is required in order to create a membership")
-            return redirect("index")
+        # Go to the login page with a message if no logged user:
+        if not user or not user.is_authenticated:
+            messages.error(request, "You have to have an account before you can register for membership")
+            return redirect("login")
         with check_for_available_membership(request) as checked:
             if checked.response:
                 return checked.response
-        # Proceed...
-        membership_type = request.GET.get("membership_type")
-        if not membership_type:
-            messages.error(request, "You have to choose membership type")
-            return redirect("membership_start")
-        is_invoice = Membership.is_membership_type_invoice(membership_type)
-        is_academic = Membership.is_membership_type_academic(membership_type)
-        debug_data = {
-            "is_invoice": is_invoice,
-            "is_academic": is_academic,
-            "membership_type": membership_type,
-            "request": request,
+        # Display a membership options form...
+        MEMBERSHIP_TYPES = Membership.get_available_membership_types()
+        context = {
+            "MEMBERSHIP_TYPES": MEMBERSHIP_TYPES,
+            "membership_type": Membership.DEFAULT_MEMBERSHIP_TYPE,
         }
-        LOG.debug("membership_proceed: %s", debug_data)
-        membership = Membership()
-        membership.membership_type = membership_type
-        membership.user = user
-        membership.save()
-        # Invoice option: show invoice result...
-        if is_invoice:
-            return redirect("membership_proceed_invoice")
-        # Go to stripe site...
-        stripe_link = academic_membership_stripe_payment_link if is_academic else regular_membership_stripe_payment_link
-        stripe_link += '?client_reference_id=TEST'
-        return redirect(stripe_link)
+        LOG.debug("membership_start: %s", context)
+        return render(request, "dds_registration/membership_start.html.django", context)
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         sTraceback = str(traceback.format_exc())
-        error_text = "Can not proceed membership: {}".format(sError)
+        error_text = "Cannot start membership: {}".format(sError)
         messages.error(request, error_text)
         debug_data = {
             "err": err,
             "traceback": sTraceback,
             "sError": sError,
         }
-        LOG.error("%s (redirecting to profile): %s", error_text, debug_data)
-        # Redirect to profile page with error messages (see above)
-        return redirect("profile")
+        LOG.error("%s (re-raising): %s", error_text, debug_data)
+        raise err
 
 
 @login_required
@@ -146,101 +66,52 @@ def membership_proceed_success(request: HttpRequest):
     return render(request, "dds_registration/membership_test.html.django", context)
 
 
-def membership_proceed_test(request: HttpRequest, payment_id: str):
+def send_membership_registration_success_message(request: HttpRequest):
+    """
+    Send successful membership registration message to the user
+
+    TODO: Send different messages depending on the `payment_method`?
+    """
+
+    email_body_template = "dds_registration/membership_registration_new_success_message_body.txt"
+    email_subject_template = "dds_registration/membership_registration_new_success_message_subject.txt"
+
+    user = request.user
+
+    context = get_membership_invoice_context(request)
+
+    invoice = context.get("invoice")
+
     try:
-        scheme = "https" if request.is_secure() else "http"
-        site = get_current_site(request)
-        debug_data = {
-            'scheme': scheme,
-            'payment_id': payment_id,
-            #  "method": method,
-            #  "request": request,
-        }
-        LOG.debug("membership_proceed_test: %s", debug_data)
-        context = {
-            "action": "membership_proceed_test",
-        }
-        return render(request, "dds_registration/membership_test.html.django", context)
+        subject = render_to_string(
+            template_name=email_subject_template,
+            context=context,
+            request=request,
+        )
+        subject = " ".join(subject.splitlines()).strip()
+        body = render_to_string(
+            template_name=email_body_template,
+            context=context,
+            request=request,
+        )
+
+        if invoice.payment_method == "INVOICE" and invoice.status in ("ISSUED", "CREATED"):
+            user.email_user(
+                subject=subject,
+                message=body,
+                attachment_content=create_invoice_pdf(context),
+                attachment_name="DdS Membership Invoice {}.pdf".format(user.get_full_name()),
+            )
+            invoice.status = "ISSUED"
+            invoice.save()
+        else:
+            user.email_user(subject=subject, message=body)
     except Exception as err:
         sError = errorToString(err, show_stacktrace=False)
         sTraceback = str(traceback.format_exc())
-        error_text = "Error on membership_test: {}".format(sError)
-        messages.error(request, error_text)
         debug_data = {
             "err": err,
             "traceback": sTraceback,
-            "sError": sError,
         }
-        LOG.error("%s (re-raising): %s", error_text, debug_data)
-        # Redirect to profile page with error messages (see above)
-        #  return redirect("profile")
-        raise err
-
-
-#  @login_required
-#  def membership_proceed_invoice(request: HttpRequest):
-#      # TODO: Generate invoice pdf
-#      template = "dds_registration/membership_invoice.html.django"
-#      context = get_invoice_context(request, event_code)
-#      show_debug = False
-#      if show_debug:
-#          return render(request, template, context)
-#      pdf = create_invoice_pdf(context)
-#      return HttpResponse(bytes(pdf.output()), content_type="application/pdf")
-
-
-@csrf_exempt
-def membership_stripe_webhook(request: HttpRequest):
-    try:
-        method = request.method
-        if method != 'POST':
-            raise Exception('Expecting post data request')
-        json_payload = request.body.decode("utf-8")
-        payload = json.loads(json_payload)
-        data = payload['data'] if 'data' in payload else {}
-        object = data['object'] if 'object' in data else {}
-        payload_type = payload.get('type')  # Expecting `payment_intent.succeeded`
-        payload_request = payload.get('request')
-        status = object.get('status')  # Expecting 'succeeded'
-        #  Parsed data example:
-        #  'id': 'evt_3OybccL41uPceS6J0bUl44n0'
-        #  'object': 'event'
-        #  'api_version': '2022-11-15'
-        #  'created': 1711465746
-        #  'data': {'object': {'id': 'pi_3OybccL41uPceS6J07wyCykn', 'object': 'payment_intent', 'amount': 2000, 'amount_capturable': 0, 'amount_details': {...}, 'amount_received': 0, 'application': None, 'application_fee_amount': None, 'automatic_payment_methods': None, 'canceled_at': None, 'cancellation_reason': None, 'capture_method': 'automatic', 'client_secret': 'pi_3OybccL41uPceS6J07wyCykn_secret_QR4X27IfkXe58qhNUTn6W9LaY', 'confirmation_method': 'automatic', 'created': 1711465746, 'currency': 'usd', 'customer': None, 'description': '(created by Stripe CLI)', 'invoice': None, ...}}
-        #  'livemode': False
-        #  'pending_webhooks': 2
-        #  'request': {'id': 'req_vurnMXFvwMjR9n', 'idempotency_key': 'af178ca4-a2b6-43c3-af8a-b227a60ffc20'}
-        #  'type': 'payment_intent.created'
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-        debug_data = {
-            'payload_type': payload_type,
-            'payload_request': payload_request,
-            "status": status,
-            #  "object": object,
-            #  "data": data,
-            #  "parsed": parsed,
-            "payload": payload,
-            "sig_header": sig_header,
-            #  "method": method,
-            #  "request": request,
-        }
-        LOG.debug("membership_stripe_webhook: %s", debug_data)
-        context = {
-            "action": "membership_stripe_webhook",
-        }
-        return render(request, "dds_registration/membership_test.html.django", context)
-    except Exception as err:
-        sError = errorToString(err, show_stacktrace=False)
-        sTraceback = str(traceback.format_exc())
-        error_text = "Error processing stripe webhook: {}".format(sError)
-        messages.error(request, error_text)
-        debug_data = {
-            "err": err,
-            "traceback": sTraceback,
-            "sError": sError,
-        }
-        LOG.error("%s (re-raising): %s", error_text, debug_data)
-        # Redirect to profile page with error messages (see above)
-        #  return redirect("profile")
+        LOG.error("Caught error %s (re-raising): %s", sError, debug_data)
         raise err
